@@ -1,0 +1,10 @@
+[package]
+name = "forge-lecteur"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oozextract = "=0.5.7"
+
+[patch.crates-io]
+test-log = { path = "vide/test-log" }

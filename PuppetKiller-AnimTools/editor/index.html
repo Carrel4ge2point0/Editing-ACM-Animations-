@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animation Editor</title>
+<style>
+  :root { --fond:#f4f3ef; --texte:#1d1d1b; --doux:#6b6a64; --ligne:#d9d7cf; --os:#3d3d38; --gauche:#2f6fd6; --droite:#d9542b; --sol:#c9c6bc; --ombre:rgba(0,0,0,.18); --sel:rgba(47,111,214,.22); --fantome:rgba(120,120,120,.45); --accent:#2f6fd6; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fond:#161614; --texte:#ecebe6; --doux:#9b9a93; --ligne:#33322e; --os:#e8e6df; --gauche:#5b9bff; --droite:#ff7a4d; --sol:#3b3a36; --ombre:rgba(0,0,0,.45); --sel:rgba(91,155,255,.25); --fantome:rgba(160,160,160,.35); --accent:#5b9bff; } }
+  :root[data-theme="dark"] { --fond:#161614; --texte:#ecebe6; --doux:#9b9a93; --ligne:#33322e; --os:#e8e6df; --gauche:#5b9bff; --droite:#ff7a4d; --sol:#3b3a36; --ombre:rgba(0,0,0,.45); --sel:rgba(91,155,255,.25); --fantome:rgba(160,160,160,.35); --accent:#5b9bff; }
+  html, body { margin:0; height:100%; background:var(--fond); color:var(--texte); font:14px/1.4 system-ui, sans-serif; }
+  body { display:flex; flex-direction:column; }
+  header, footer { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--ligne); }
+  select, button, input { font:inherit; color:var(--texte); background:transparent; border:1px solid var(--ligne); border-radius:6px; padding:4px 8px; }
+  button.actif { background:var(--texte); color:var(--fond); }
+  .leg { color:var(--doux); font-size:12px; }
+  #milieu { flex:1; display:flex; min-height:0; }
+  #scene { flex:1; position:relative; min-width:0; }
+  canvas#c { display:block; width:100%; height:100%; touch-action:none; }
+  #panneau { width:320px; flex:none; overflow-y:auto; border-left:1px solid var(--ligne); padding:10px; display:flex; flex-direction:column; gap:10px; }
+  #panneau h3 { margin:4px 0 0; font-size:13px; }
+  .bloc { border:1px solid var(--ligne); border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:6px; }
+  .rang { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .rang label { font-size:12px; color:var(--doux); }
+  input[type=range] { flex:1; padding:0; }
+  input[type=number] { width:64px; }
+  #ops div { display:flex; gap:6px; align-items:center; font-size:12px; padding:3px 0; border-bottom:1px dashed var(--ligne); }
+  #ops div span { flex:1; }
+  #timeline { display:block; width:100%; height:64px; border-top:1px solid var(--ligne); cursor:crosshair; touch-action:none; }
+  #etat { font-size:12px; color:var(--doux); }
+  @media (max-width:760px) { #milieu { flex-direction:column; } #panneau { width:auto; max-height:45vh; border-left:0; border-top:1px solid var(--ligne); } }
+</style>
+</head>
+<body>
+<header>
+  <b>Animation Editor</b>
+  <select id="source" title="animation to edit" style="max-width:360px"></select>
+  <label class="leg">game slot <select id="cas" title="game slot (mold) the animation will be encoded into"></select></label>
+  <span id="durees" class="leg"></span>
+  <button id="lecture">Pause</button>
+  <label class="leg"><input id="lent" type="checkbox"> slow-mo</label>
+  <label class="leg"><input id="fantome" type="checkbox" checked> original as ghost</label>
+  <button data-vue="face">Front</button><button data-vue="profil">Side</button><button data-vue="trois">3/4</button>
+  
+</header>
+<div id="milieu">
+  <div id="scene"><canvas id="c"></canvas></div>
+  <div id="panneau">
+    <div class="bloc">
+      <h3>Selection</h3>
+      <div class="leg">Drag on the timeline below to select a range. Click: move the playhead. Space: play / pause.</div>
+      <div class="rang"><label>from</label><input id="selA" type="number" min="0"><label>to</label><input id="selB" type="number" min="0"><button id="selTout">all</button></div>
+    </div>
+    <div class="bloc">
+      <h3>Timing</h3>
+      <div class="rang"><label>range speed ×</label><input id="k" type="number" value="0.5" step="0.05" min="0.05" max="8"><button id="opVitesse">apply</button></div>
+      <div class="leg">0.5 = twice as slow, 2 = twice as fast.</div>
+      <div class="rang"><button id="opFiger">hold range (freeze)</button><button id="opCouper">cut range</button></div>
+      <div class="rang"><button id="opCase">fit to slot length</button><button id="opFin">trim end to fit slot</button></div>
+      <div class="leg">Fit stretches or squeezes the whole animation to end exactly with the slot. Trim keeps the original speed and removes what goes past the slot end (orange line on the timeline).</div>
+    </div>
+    <div class="bloc">
+      <h3>Bone</h3>
+      <div class="rang"><select id="os" style="flex:1"></select></div>
+      <div class="rang"><label>X</label><input id="rx" type="range" min="-90" max="90" value="0"><span id="vx" class="leg">0°</span></div>
+      <div class="rang"><label>Y</label><input id="ry" type="range" min="-90" max="90" value="0"><span id="vy" class="leg">0°</span></div>
+      <div class="rang"><label>Z</label><input id="rz" type="range" min="-90" max="90" value="0"><span id="vz" class="leg">0°</span></div>
+      <div class="rang"><label>on</label><select id="portee"><option value="sel">selected range</option><option value="cur">around playhead</option></select><label>fade</label><input id="fondu" type="number" value="8" min="0" max="120"><label class="leg">frames</label></div>
+      <div class="rang"><button id="opOs">apply rotation</button><button id="annulerOs">reset to 0</button></div>
+      <div class="leg">Live preview while moving the sliders. The selected bone is circled.</div>
+    </div>
+    <div class="bloc">
+      <h3>Edits</h3>
+      <div id="ops"></div>
+      <div class="rang"><button id="annuler">undo last</button><button id="toutEffacer">clear all</button></div>
+    </div>
+    <div class="bloc">
+      <h3>Save</h3>
+      <div class="rang"><input id="nomEd" placeholder="version name" style="flex:1"></div>
+      <div class="rang"><button id="enregistrer">save for the game</button></div>
+      <div id="etat"></div>
+    </div>
+  </div>
+</div>
+<canvas id="timeline"></canvas>
+<footer><span id="img" class="leg">0</span><span id="infos" class="leg"></span></footer>
+<script>
+// ---------- Données ----------
+// Les 13 cases (moules) du jeu : identifiant, nom, durée en secondes.
+const CASES = [
+  ['fc32a8ee7','SkipOver Fd010 Up200',2.0],['89b1766e2','SkipOver Fd100 Up050',1.6333333],['296f0c7d9','SkipOver Fd100 Up100',2.1],
+  ['e87191afa','SkipOver Fd100 Up150_02',2.2333333],['89b1766ff','SkipOver Fd200 Up050',1.6666666],['296f0f8b8','SkipOver Fd200 Up100',2.2333333],
+  ['7fc9c4eed','SkipOver Fd200 Up150',2.5666666],['7fc9c7405','SlideOver Fd100 Up050',1.9333333],['2e1406ef9','SlideOver Fd200 Up100',1.7666667],
+  ['fc32a8d7a','SlideOver Fd200 Up200',2.0],['7fc9c7401','SlideOver Fd300 Up050',2.6],['47bfb02eb','SlideOver Fd300 Up100',2.5333333],['7fc9c529c','SlideOver Fd300 Up150',2.2666667],
+  ['1f252ef0ea0','SkipOver Fd010 Up100 (new)',2.6],['1f252ef2c81','SkipOver Fd010 Up100_02 (new)',2.6]];
+const PARC = {}; // optional: Puppet Native JSON number -> default slot id
+const FPS = 60;
+let SQ = null, PAR_ID = {}, SRC = null, PISTES = null, OPS = [], RES = null;
+let f = 0, lit = true, dernier = 0, az = 0.6, el = 0.25, zoom = 0.6, sel = [0, 0];
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// ---------- Quaternions (x, y, z, w) ----------
+const qmul = (a, b) => [a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1], a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0], a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3], a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2]];
+const qrot = (q, v) => { const r = qmul(qmul(q, [v[0], v[1], v[2], 0]), [-q[0], -q[1], -q[2], q[3]]); return [r[0], r[1], r[2]]; };
+const qnorm = q => { const n = Math.hypot(...q) || 1; return q.map(x => x / n); };
+function slerp(a, b, t) {
+  let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]; if (d < 0) { b = b.map(x => -x); d = -d; }
+  if (d > 0.9995) return qnorm(a.map((x, i) => x + (b[i] - x) * t));
+  const th = Math.acos(d), s = Math.sin(th), wa = Math.sin((1 - t) * th) / s, wb = Math.sin(t * th) / s;
+  return a.map((x, i) => x * wa + b[i] * wb);
+}
+const euler = (x, y, z) => { const r = Math.PI / 180, c = a => Math.cos(a * r / 2), s = a => Math.sin(a * r / 2);
+  return qmul(qmul([0, 0, s(z), c(z)], [0, s(y), 0, c(y)]), [s(x), 0, 0, c(x)]); };
+
+// ---------- Lecture de la source ----------
+// Pistes de mouvement : infotype 0 (rotation) et 3 (position). Les autres (courbes, repères) sont gardées et recalées dans le temps.
+function preparer(d) {
+  const p = [];
+  for (const t of d.Tracks) {
+    const k = t.Keyframes || []; if (!k.length) continue;
+    const id = +t.TrackID, o = PAR_ID[id];
+    if ('LocalRotation' in k[0] && o !== undefined) p.push({ t, o, rot: true, fr: k.map(x => x.Frame), v: k.map(x => x.LocalRotation) });
+    else if ('LocalPosition' in k[0] && t.infotype === 3 && o !== undefined) p.push({ t, o, rot: false, fr: k.map(x => x.Frame), v: k.map(x => x.LocalPosition) });
+  }
+  return p;
+}
+function echant(p, x) {
+  const fr = p.fr, v = p.v, n = fr.length;
+  if (x <= fr[0]) return v[0]; if (x >= fr[n - 1]) return v[n - 1];
+  let lo = 0, hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (fr[m] <= x) lo = m; else hi = m; }
+  const u = (x - fr[lo]) / (fr[hi] - fr[lo] || 1);
+  return p.rot ? slerp(v[lo], v[hi], u) : v[lo].map((a, i) => a + (v[hi][i] - a) * u);
+}
+
+// ---------- Chaîne des modifications ----------
+// Chaque étape donne : longueur (images) et pose(t) = { piste -> valeur }. Les étapes de temps remappent t.
+function construire() {
+  let L = Math.round(SRC.Length * FPS), m = t => t;           // m : temps courant -> temps source
+  const rotsOs = [];                                           // rotations d'os, posées dans le temps courant puis remappées
+  const etapes = [];
+  for (const op of OPS) {
+    const m0 = m, L0 = L;
+    if (op.type === 'vitesse') {
+      const [a, b] = op.sel, d = (b - a) / op.k;
+      m = t => t < a ? m0(t) : t < a + d ? m0(a + (t - a) * op.k) : m0(t - d + (b - a)); L = L0 - (b - a) + d;
+    } else if (op.type === 'figer') { const [a, b] = op.sel; m = t => (t >= a && t <= b) ? m0(a) : m0(t); }
+    else if (op.type === 'couper') { const [a, b] = op.sel; m = t => t < a ? m0(t) : m0(t + (b - a)); L = L0 - (b - a); }
+    else if (op.type === 'case') { const N = Math.round(op.duree * FPS), r = L0 / N; m = t => m0(t * r); L = N; }
+    else if (op.type === 'os') { rotsOs.push({ op, m: null, apres: etapes.length }); }
+    etapes.push({ m, L });
+  }
+  L = Math.max(1, Math.round(L));
+  // Les rotations d'os sont exprimées dans le temps au moment où elles ont été posées : on les ramène au temps final
+  // en cherchant, pour chaque image finale, l'image correspondante de cette étape (via le temps source).
+  return { L, m, rotsOs, etapes };
+}
+function poids(op, t) {
+  const [a, b] = op.portee, F = Math.max(0, op.fondu);
+  if (t >= a && t <= b) return 1;
+  if (F === 0) return 0;
+  const d = t < a ? a - t : t - b; if (d >= F) return 0; const u = 1 - d / F; return u * u * (3 - 2 * u);
+}
+function pose(R, t, sansOs) {
+  const ts = R.m(t), out = new Map();
+  for (const p of PISTES) out.set(p, echant(p, ts));
+  if (sansOs) return out;
+  for (const ro of R.rotsOs) {
+    // temps de l'étape où la rotation a été posée, retrouvé par le temps source (premier temps de l'étape qui y correspond)
+    const e = ro.apres > 0 ? R.etapes[ro.apres - 1] : { m: x => x, L: Math.round(SRC.Length * FPS) };
+    const te = inverse(e, ts);
+    const w = poids(ro.op, te); if (w <= 0) continue;
+    const q = slerp([0, 0, 0, 1], euler(...ro.op.deg), w);
+    for (const p of PISTES) if (p.rot && p.o === ro.op.os) out.set(p, qnorm(qmul(out.get(p), q)));
+  }
+  return out;
+}
+const CACHE_INV = new WeakMap();
+function inverse(e, ts) {
+  let tab = CACHE_INV.get(e);
+  if (!tab) { tab = []; for (let t = 0; t <= e.L; t += 0.5) tab.push([t, e.m(t)]); CACHE_INV.set(e, tab); }
+  let best = tab[0][0], d = 1e9; for (const [t, s] of tab) { const x = Math.abs(s - ts); if (x < d) { d = x; best = t; } }
+  return best;
+}
+
+// ---------- Squelette à une image ----------
+function squelette(valeurs) {
+  const g = new Array(SQ.length);
+  const parOs = new Map(); for (const [p, v] of valeurs) parOs.set((p.rot ? 'r' : 'p') + p.o, v);
+  for (const o of SQ) {
+    const q = parOs.get('r' + o.i) || o.rot, tl = parOs.get('p' + o.i) || o.pos;
+    if (o.parent === null) g[o.i] = [tl, q];
+    else { const [pp, pq] = g[o.parent], d = qrot(pq, tl); g[o.i] = [[pp[0] + d[0], pp[1] + d[1], pp[2] + d[2]], qmul(pq, q)]; }
+  }
+  return g.map(x => x[0]);
+}
+
+// ---------- Dessin ----------
+const cv = $('c'), ctx = cv.getContext('2d'), tl = $('timeline'), tx = tl.getContext('2d');
+function taille() { for (const c of [cv, tl]) { const r = c.getBoundingClientRect(); c.width = r.width * devicePixelRatio; c.height = r.height * devicePixelRatio; } }
+addEventListener('resize', taille);
+function projeter(p, centre) {
+  const x = p[0] - centre[0], y = p[1] - centre[1], z = p[2] - centre[2];
+  const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = -Math.sin(el);
+  const X = x * ca - y * sa, Y = x * sa + y * ca, prof = Y * ce + z * se, H = z * ce - Y * se;
+  const s = Math.min(cv.width, cv.height) * 0.28 * zoom, d = 4 / (4 + prof);
+  return [cv.width / 2 + X * s * d, cv.height * 0.6 - H * s * d, prof];
+}
+function corps(im, centre, fantome) {
+  const segs = [];
+  SQ.forEach((o, i) => { if (o.parent === null || o.parent === 0) return;
+    const doigt = /Hand(Index|Middle|Ring|Pinky|Thumb)/.test(o.nom) || o.nom === '?';
+    segs.push({ a: im[i], b: im[o.parent], doigt, cote: /^Left/.test(o.nom) ? '--gauche' : /^Right/.test(o.nom) ? '--droite' : '--os' }); });
+  const pr = segs.map(s => ({ s, p: projeter(s.a, centre), q: projeter(s.b, centre) })).sort((u, v) => (v.p[2] + v.q[2]) - (u.p[2] + u.q[2]));
+  ctx.lineCap = 'round';
+  for (const { s, p, q } of pr) {
+    ctx.strokeStyle = fantome ? css('--fantome') : css(s.cote); ctx.lineWidth = (s.doigt ? 1.5 : fantome ? 4 : 6) * devicePixelRatio;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  }
+  const h = SQ.findIndex(o => o.nom === 'Head'), t = projeter(im[h], centre);
+  ctx.fillStyle = fantome ? css('--fantome') : css('--os'); ctx.beginPath(); ctx.arc(t[0], t[1], (fantome ? 8 : 11) * devicePixelRatio, 0, 7); ctx.fill();
+}
+function dessiner() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!RES) return;
+  const im = squelette(pose(RES, f)), centre = [0, 0, 0.8];
+  // sol et ombre
+  const bas = 0; ctx.strokeStyle = css('--sol'); ctx.lineWidth = devicePixelRatio;
+  for (let i = -3; i <= 3; i++) for (const [a, b] of [[[i * 0.5, -1.5, bas], [i * 0.5, 1.5, bas]], [[-1.5, i * 0.5, bas], [1.5, i * 0.5, bas]]]) {
+    const p = projeter(a, centre), q = projeter(b, centre); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); }
+  if ($('fantome').checked && OPS.length) {
+    const ts = RES.m(f), v = new Map(); for (const p of PISTES) v.set(p, echant(p, ts));
+    // fantôme : l'original au même moment de l'animation source, sans retouche d'os
+    corps(squelette(v), centre, true);
+  }
+  corps(im, centre, false);
+  const o = +$('os').value; if (!isNaN(o)) { const p = projeter(im[o], centre); ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2 * devicePixelRatio; ctx.beginPath(); ctx.arc(p[0], p[1], 9 * devicePixelRatio, 0, 7); ctx.stroke(); }
+  $('img').textContent = 'frame ' + Math.round(f) + ' / ' + RES.L + '  ·  ' + (f / FPS).toFixed(2) + ' s';
+  frise();
+}
+function frise() {
+  const W = tl.width, H = tl.height, L = RES.L, X = t => 8 + (W - 16) * t / L;
+  tx.clearRect(0, 0, W, H); tx.fillStyle = css('--sel'); tx.fillRect(X(sel[0]), 0, Math.max(2, X(sel[1]) - X(sel[0])), H);
+  tx.strokeStyle = css('--ligne'); tx.fillStyle = css('--doux'); tx.font = (10 * devicePixelRatio) + 'px system-ui';
+  for (let t = 0; t <= L; t += 10) { const x = X(t); tx.beginPath(); tx.moveTo(x, H); tx.lineTo(x, H - (t % 60 ? 6 : 14) * devicePixelRatio); tx.stroke(); if (t % 60 === 0) tx.fillText((t / FPS) + ' s', x + 3, 12 * devicePixelRatio); }
+  const caseL = caseChoisie() ? Math.round(caseChoisie()[2] * FPS) : null;
+  if (caseL) { tx.strokeStyle = css('--droite'); tx.setLineDash([4, 3]); const x = X(Math.min(L, caseL)); tx.beginPath(); tx.moveTo(x, 0); tx.lineTo(x, H); tx.stroke(); tx.setLineDash([]); tx.fillStyle = css('--droite'); tx.fillText('slot end', x + 3, H - 18 * devicePixelRatio); }
+  tx.strokeStyle = css('--texte'); tx.lineWidth = 2 * devicePixelRatio; const x = X(f); tx.beginPath(); tx.moveTo(x, 0); tx.lineTo(x, H); tx.stroke(); tx.lineWidth = 1;
+}
+function boucle(t) {
+  const pas = $('lent').checked ? 66 : 1000 / FPS;
+  if (lit && RES && t - dernier >= pas) { f = (Math.floor(f) + 1) % (RES.L + 1); dernier = t; }
+  dessiner(); requestAnimationFrame(boucle);
+}
+
+// ---------- Interface ----------
+const caseChoisie = () => CASES.find(c => c[0] === $('cas').value);
+function majDurees() {
+  if (!RES) return; const c = caseChoisie(), d = RES.L / FPS;
+  $('durees').textContent = 'length ' + d.toFixed(2) + ' s' + (c ? ' · slot ' + c[2].toFixed(2) + ' s' + (Math.abs(d - c[2]) < 0.02 ? ' ✓' : d < c[2] ? ' (shorter: OK, the game blends out by itself)' : ' (end cut in game)') : '');
+}
+function recalculer() { RES = construire(); f = Math.min(f, RES.L); sel = [Math.min(sel[0], RES.L), Math.min(sel[1], RES.L)]; majSel(); majOps(); majDurees(); }
+function majSel() { $('selA').value = Math.round(sel[0]); $('selB').value = Math.round(sel[1]); }
+const NOMS_OP = { vitesse: o => 'speed ×' + o.k + ' on ' + o.sel.map(Math.round).join('–'), figer: o => 'hold ' + o.sel.map(Math.round).join('–'), couper: o => 'cut ' + o.sel.map(Math.round).join('–'),
+  case: o => 'fit to ' + o.duree.toFixed(2) + ' s', os: o => 'bone ' + SQ[o.os].nom + ' ' + o.deg.join('/') + '° on ' + o.portee.map(Math.round).join('–') + ' (fade ' + o.fondu + ')' };
+function majOps() {
+  const z = $('ops'); z.innerHTML = '';
+  if (!OPS.length) z.innerHTML = '<span class="leg">none: this is the original animation</span>';
+  OPS.forEach((o, i) => { const d = document.createElement('div'); const s = document.createElement('span'); s.textContent = (i + 1) + '. ' + NOMS_OP[o.type](o);
+    const b = document.createElement('button'); b.textContent = '×'; b.title = 'remove'; b.onclick = () => { OPS.splice(i, 1); recalculer(); }; d.append(s, b); z.append(d); });
+}
+function ajouter(op) {
+  const L0 = RES.L;
+  OPS.push(op); recalculer();
+  // la sélection suit le passage modifié, dans la nouvelle frise
+  if (op.type === 'vitesse') sel = [op.sel[0], Math.round(op.sel[0] + (op.sel[1] - op.sel[0]) / op.k)];
+  else if (op.type === 'couper') sel = [op.sel[0], op.sel[0]];
+  else if (op.type === 'case') { const r = RES.L / L0; sel = sel.map(x => Math.round(x * r)); }
+  // le curseur reste au même moment du mouvement
+  if (op.type !== 'os' && op.type !== 'figer') { const r = RES.L / L0; if (op.type === 'case') f = Math.round(f * r);
+    else if (op.type === 'vitesse' && f > op.sel[0]) f = f >= op.sel[1] ? Math.round(f + RES.L - L0) : Math.round(op.sel[0] + (f - op.sel[0]) / op.k);
+    else if (op.type === 'couper' && f > op.sel[0]) f = Math.max(op.sel[0], Math.round(f - (op.sel[1] - op.sel[0]))); }
+  sel = sel.map(x => Math.max(0, Math.min(RES.L, x))); f = Math.max(0, Math.min(RES.L, f)); majSel();
+}
+const selOk = () => { if (sel[1] - sel[0] < 1) { alerte('Select a range on the timeline first.'); return false; } return true; };
+const alerte = m => { $('etat').textContent = m; };
+$('opVitesse').onclick = () => { if (selOk()) ajouter({ type: 'vitesse', sel: [...sel], k: Math.max(0.05, +$('k').value || 1) }); };
+$('opFiger').onclick = () => { if (selOk()) ajouter({ type: 'figer', sel: [...sel] }); };
+$('opCouper').onclick = () => { if (selOk()) ajouter({ type: 'couper', sel: [...sel] }); };
+$('opCase').onclick = () => { const c = caseChoisie(); if (c) ajouter({ type: 'case', duree: c[2] }); };
+$('opFin').onclick = () => { const c = caseChoisie(); if (!c) return; const N = Math.round(c[2] * FPS);
+  if (RES.L <= N) { alerte('The animation already fits the slot (' + (RES.L / FPS).toFixed(2) + ' s).'); return; }
+  alerte('End trimmed: ' + (RES.L - N) + ' frames (' + ((RES.L - N) / FPS).toFixed(2) + ' s).'); ajouter({ type: 'couper', sel: [N, RES.L] }); };
+const degres = () => ['rx', 'ry', 'rz'].map(k => +$(k).value);
+function porteeOs() { const F = +$('fondu').value || 0; return $('portee').value === 'sel' && sel[1] - sel[0] >= 1 ? [...sel] : [f, f]; }
+// aperçu : une rotation provisoire en dernière position, retirée si on ne l'applique pas
+let apercu = null;
+function majApercu() {
+  ['x', 'y', 'z'].forEach(a => $('v' + a).textContent = $('r' + a).value + '°');
+  if (apercu) { OPS.splice(OPS.indexOf(apercu), 1); apercu = null; }
+  const d = degres(); if (d.some(x => x)) { apercu = { type: 'os', os: +$('os').value, deg: d, portee: porteeOs(), fondu: +$('fondu').value || 0, apercu: true }; OPS.push(apercu); }
+  recalculer();
+}
+['rx', 'ry', 'rz'].forEach(k => $(k).oninput = majApercu);
+$('os').onchange = () => { remettreOs(); };
+function remettreOs() { ['rx', 'ry', 'rz'].forEach(k => $(k).value = 0); majApercu(); }
+$('opOs').onclick = () => { if (!apercu) return; delete apercu.apercu; apercu = null; ['rx', 'ry', 'rz'].forEach(k => $(k).value = 0); ['x', 'y', 'z'].forEach(a => $('v' + a).textContent = '0°'); recalculer(); };
+$('annulerOs').onclick = remettreOs;
+$('annuler').onclick = () => { if (apercu) remettreOs(); OPS.pop(); recalculer(); };
+$('toutEffacer').onclick = () => { apercu = null; OPS = []; ['rx', 'ry', 'rz'].forEach(k => $(k).value = 0); recalculer(); };
+$('selTout').onclick = () => { sel = [0, RES.L]; majSel(); };
+$('selA').onchange = () => { sel[0] = Math.max(0, Math.min(+$('selA').value, sel[1])); };
+$('selB').onchange = () => { sel[1] = Math.min(RES.L, Math.max(+$('selB').value, sel[0])); };
+$('lecture').onclick = e => { lit = !lit; e.target.textContent = lit ? 'Pause' : 'Play'; };
+const VUES = { face: [Math.PI / 2, 0.1], profil: [0, 0.1], trois: [0.7, 0.3] };
+document.querySelectorAll('[data-vue]').forEach(b => b.onclick = () => { [az, el] = VUES[b.dataset.vue]; });
+$('cas').onchange = () => { majDurees(); };
+// frise : clic = curseur, glisser = sélection
+let tire = null;
+const tAt = e => { const r = tl.getBoundingClientRect(); return Math.max(0, Math.min(RES.L, Math.round((e.clientX - r.left - 8 / devicePixelRatio) / (r.width - 16 / devicePixelRatio) * RES.L))); };
+tl.addEventListener('pointerdown', e => { tire = tAt(e); tl.setPointerCapture(e.pointerId); f = tire; lit = false; $('lecture').textContent = 'Play'; });
+tl.addEventListener('pointermove', e => { if (tire === null) return; const t = tAt(e); if (Math.abs(t - tire) >= 1) { sel = [Math.min(t, tire), Math.max(t, tire)]; majSel(); } f = t; });
+tl.addEventListener('pointerup', () => { tire = null; if (apercu) majApercu(); });
+// orbite de la caméra
+let orb = null;
+cv.addEventListener('pointerdown', e => { orb = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => { if (!orb) return; az += (e.clientX - orb[0]) * 0.01; el = Math.max(0.02, Math.min(1.4, el + (e.clientY - orb[1]) * 0.01)); orb = [e.clientX, e.clientY]; });
+cv.addEventListener('pointerup', () => orb = null);
+cv.addEventListener('wheel', e => e.preventDefault(), { passive: false });
+addEventListener('keydown', e => {
+  const saisie = e.target.tagName === 'INPUT' && !['range', 'checkbox'].includes(e.target.type);
+  if (e.key === ' ' && !saisie) { e.preventDefault(); e.stopPropagation(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); $('lecture').click(); return; }
+  if (saisie) return;
+  if (e.key === 'ArrowRight') { f = Math.min(RES.L, Math.round(f) + 1); lit = false; } if (e.key === 'ArrowLeft') { f = Math.max(0, Math.round(f) - 1); lit = false; } }, true);
+// un bouton ou un menu qui a le focus ne doit pas se déclencher avec l'espace
+addEventListener('keyup', e => { if (e.key === ' ' && !(e.target.tagName === 'INPUT' && !['range', 'checkbox'].includes(e.target.type))) e.preventDefault(); }, true);
+
+// ---------- Export : JSON au format de l'encodeur ----------
+function exporter() {
+  const R = RES, out = JSON.parse(JSON.stringify({ ...SRC, Tracks: [] }));
+  out.Length = +(R.L / FPS).toFixed(6);
+  const valeurs = []; for (let t = 0; t <= R.L; t++) valeurs.push(pose(R, t));
+  const mouv = new Set(PISTES.map(p => p.t));
+  for (const t of SRC.Tracks) {
+    const p = PISTES.find(x => x.t === t);
+    if (p) { const champ = p.rot ? 'LocalRotation' : 'LocalPosition';
+      out.Tracks.push({ ...t, Keyframes: valeurs.map((v, i) => ({ Frame: i, [champ]: v.get(p).map(x => +x.toFixed(6)) })) }); }
+    else {
+      // piste spéciale : chaque clé est recalée au premier temps final qui correspond à son temps source
+      const ks = [];
+      for (const k of t.Keyframes || []) { let best = null; for (let i = 0; i <= R.L; i++) if (R.m(i) >= k.Frame - 1e-6) { best = i; break; }
+        if (best !== null && (!ks.length || ks[ks.length - 1].Frame !== best)) ks.push({ ...k, Frame: best }); }
+      if (ks.length || !(t.Keyframes || []).length) out.Tracks.push({ ...t, Keyframes: ks });
+    }
+  }
+  out.NumTracks = out.Tracks.length;
+  return out;
+}
+$('enregistrer').onclick = async () => {
+  if (apercu) { alerte('Apply or reset the current rotation first.'); return; }
+  const c = caseChoisie(), nom = ($('nomEd').value.trim() || $('source').selectedOptions[0].textContent.replace(/\W+/g, '_')).slice(0, 100);
+  const d = RES.L / FPS;
+  if (c && Math.abs(d - c[2]) > 0.02) alerte('Warning: length ' + d.toFixed(2) + ' s for a ' + c[2].toFixed(2) + ' s slot. Saving anyway…');
+  const r = await fetch('/edition', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nom, source: $('source').value, case: c ? c[0] : null, case_nom: c ? c[1] : null, operations: OPS, animation: exporter() }) });
+  const j = r.ok ? await r.json() : null;
+  alerte(j ? 'Saved: ' + j.fichier : 'Error ' + r.status);
+};
+
+// ---------- Démarrage ----------
+async function charger(cle) {
+  const [src, fch] = cle.split('|');
+  SRC = await (await fetch('/source?src=' + src + '&f=' + encodeURIComponent(fch))).json();
+  PISTES = preparer(SRC); OPS = []; apercu = null; f = 0; sel = [0, 0];
+  const num = (fch.match(/^(\d+)_/) || [])[1], cs = src === 'parc' ? (fch.match(/source_([0-9a-f]+)/) || [])[1] : PARC[num];
+  let cj = null;
+  if (src === 'jeu') { const m = fch.match(/(SkipOver|SlideOver)_Fd(\d+)cm_Up(\d+)cm(_02)?/); if (m) { const n = m[1] + ' Fd' + m[2] + ' Up' + m[3] + (m[4] || ''); cj = (CASES.find(c => c[1] === n || c[1].startsWith(n + ' (')) || [])[0]; } }
+  if (cs || cj) $('cas').value = cs || cj;
+  $('nomEd').value = (src === 'ed' ? fch.replace(/\.json$/, '') : (SRC.Name || fch).split('_-_').pop()) .replace(/\W+/g, '_') + (src === 'ed' ? '' : '_v1');
+  $('infos').textContent = PISTES.length + ' motion tracks · ' + (SRC.Tracks.length - PISTES.length) + ' other tracks kept and retimed';
+  recalculer(); alerte('');
+}
+(async () => {
+  SQ = await (await fetch('squelette.json')).json(); for (const o of SQ) PAR_ID[o.id] = o.i;
+  for (const c of CASES) $('cas').append(new Option(c[1] + ' (' + c[2].toFixed(2) + ' s)', c[0]));
+  $('cas').prepend(new Option('none', ''));
+  SQ.forEach(o => { if (o.nom !== '?') $('os').append(new Option(o.nom, o.i)); });
+  $('os').value = SQ.find(o => o.nom === 'Spine1')?.i ?? 1;
+  const L = await (await fetch('/sources')).json(), s = $('source');
+  const g = { ed: 'My edits', pn: 'Animations (JSON folder)' };
+  for (const k of ['ed', 'pn']) { const og = document.createElement('optgroup'); og.label = g[k];
+    for (const x of L.filter(x => x.src === k)) og.append(new Option(x.f.replace(/\.json$/, ''), x.src + '|' + x.f));
+    if (og.children.length) s.append(og); }
+  s.onchange = () => charger(s.value);
+  taille(); await charger(s.value); requestAnimationFrame(boucle);
+})();
+</script>
+</body>
+</html>
